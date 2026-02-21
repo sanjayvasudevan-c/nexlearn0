@@ -14,9 +14,12 @@ from app.db.session import engine
 from app.db.base import Base
 from app.models.user import User
 from app.api.auth import router as auth_router
+from app.api import note
+
 
 app = FastAPI(title="Notes API")
 
+app.include_router(note.router)
 
 @app.on_event("startup")
 def check_db():
