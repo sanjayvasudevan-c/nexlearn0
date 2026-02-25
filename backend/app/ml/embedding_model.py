@@ -1,9 +1,8 @@
-from sentence_traansformers import SentencesTransformer
- 
+from sentence_transformers import SentenceTransformer
+
+# Load model once when module loads
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-def generat_embedding(text:str):
-
-    embedding = mode.encode(text)
+def generate_embedding(text: str):
+    embedding = model.encode(text)
     return embedding.tolist()
-   
