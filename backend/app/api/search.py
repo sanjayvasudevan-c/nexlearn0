@@ -1,28 +1,40 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-import math
+from datetime import date
 
 from app.db.session import get_db
 from app.ml.embedding_model import generate_embedding
+from app.models.demand_log import DemandLog
+from app.models.challenge import Challenge
+from app.dependencies.auth import get_current_user
+from app.utils.topic_normalizer import normalize_topic
+
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
 SIMILARITY_THRESHOLD = 0.3
 SIMILARITY_WEIGHT = 0.7
 ENGAGEMENT_WEIGHT = 0.3
+BASE_REWARD = 50
+REWARD_INCREMENT = 10
 
 
 @router.get("/")
-def semantic_search(q: str, db: Session = Depends(get_db)):
+def semantic_search(
+    q: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
 
+    # 🔹 1️⃣ Validate Query
     if not q.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-    # 1️⃣ Convert query into embedding vector
+    # 🔹 2️⃣ Generate embedding for semantic search
     query_embedding = generate_embedding(q)
 
-    # 2️⃣ Retrieve semantically closest notes (top 20)
+    # 🔹 3️⃣ Retrieve candidate notes
     result = db.execute(
         text("""
             SELECT id, title, subject,
@@ -43,20 +55,16 @@ def semantic_search(q: str, db: Session = Depends(get_db)):
 
     rows = result.fetchall()
 
-    if not rows:
-        return {"message": "No notes found"}
-
     final_results = []
 
+    # 🔹 4️⃣ Apply hybrid ranking
     for row in rows:
         similarity = float(row.similarity)
         engagement = float(row.engagement)
 
-        # 3️⃣ Apply similarity threshold
         if similarity < SIMILARITY_THRESHOLD:
             continue
 
-        # 4️⃣ Compute hybrid final score
         final_score = (
             SIMILARITY_WEIGHT * similarity
             + ENGAGEMENT_WEIGHT * engagement
@@ -74,10 +82,53 @@ def semantic_search(q: str, db: Session = Depends(get_db)):
             "downloads": row.download_count
         })
 
+    # 🔹 5️⃣ If no relevant results → log demand & manage challenge
     if not final_results:
-        return {"message": "No relevant notes found"}
 
-    # 5️⃣ Sort by final_score descending
+        topic_key = normalize_topic(q)
+
+        # Log demand (unique per user per day)
+        try:
+            demand = DemandLog(
+                query=q.strip(),
+                topic_key=topic_key,
+                user_id=current_user.id,
+                search_date=date.today()
+            )
+            db.add(demand)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        # Check if challenge exists
+        existing_challenge = db.query(Challenge).filter(
+            Challenge.topic_key == topic_key,
+            Challenge.is_active == True
+        ).first()
+
+        if existing_challenge:
+            # Increase reward dynamically
+            existing_challenge.reward_credits += REWARD_INCREMENT
+            existing_challenge.demand_count += 1
+            db.commit()
+        else:
+            # Create new challenge immediately (threshold = 1)
+            new_challenge = Challenge(
+                topic_key=topic_key,
+                reward_credits=BASE_REWARD,
+                demand_count=1,
+                is_active=True
+            )
+            db.add(new_challenge)
+            db.commit()
+
+        return {
+            "message": "No relevant notes found.",
+            "demand_logged": True,
+            "topic_key": topic_key
+        }
+
+    # 🔹 6️⃣ Sort by final_score descending
     final_results.sort(key=lambda x: x["final_score"], reverse=True)
 
     return final_results
