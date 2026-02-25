@@ -1,8 +1,9 @@
 import uuid
 
-from sqlalchemy import Column, String, Integer, DateTime
+from sqlalchemy import Column, String, Integer, DateTime, Boolean, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from pgvector.sqlalchemy import Vector
 
 from app.db.base import Base
 
@@ -25,3 +26,17 @@ class Note(Base):
     page_count = Column(Integer)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    upvotes = Column(Integer, default=0)
+
+    download_count = Column(Integer, default=0)
+
+    view_count = Column(Integer, default=0)
+
+    comment_count = Column(Integer, default=0)
+
+    average_rating = Column(Float, default=0.0)
+
+    is_private = Column(Boolean, default=True)
+
+    embedding = Column(Vector(384))
