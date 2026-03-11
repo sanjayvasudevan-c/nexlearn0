@@ -24,6 +24,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @router.post("/upload")
 def upload_note(
     title: str = Form(...),
+    description: str = Form(""),
     subject: str = Form(...),
     content_type: str = Form(...),
     is_private: bool = Form(True),
@@ -59,11 +60,12 @@ def upload_note(
     note_text = note_text[:5000]
 
    
-    embedding = generate_embedding(note_text)
+    embedding = generate_embedding(title + " " + description + " " + note_text)
 
   
     note = Note(
         title=title,
+        description=description,
         subject=subject,
         content_type=content_type,
         is_private=is_private,
