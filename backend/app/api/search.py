@@ -10,6 +10,7 @@ from app.models.demand_log import DemandLog
 from app.models.challenge import Challenge
 from app.dependencies.auth import get_current_user
 from app.utils.topic_normalizer import normalize_topic
+from app.services.ai_notes import generate_ai_notes
 
 
 router = APIRouter(prefix="/search", tags=["Search"])
@@ -58,7 +59,10 @@ def semantic_search(
             ORDER BY embedding <=> :embedding
             LIMIT :limit
         """),
-        {"embedding": query_embedding, "limit": CANDIDATE_LIMIT}
+        {
+            "embedding": query_embedding,
+            "limit": CANDIDATE_LIMIT
+        }
     )
 
     rows = result.fetchall()
@@ -66,6 +70,7 @@ def semantic_search(
     candidates = []
 
     for row in rows:
+
         similarity = float(row.similarity)
 
         if similarity < SIMILARITY_THRESHOLD:
@@ -91,6 +96,7 @@ def semantic_search(
             "query": query,
             "candidate_count": len(candidates),
             "results": candidates,
+            "ai_generated_note": None,
             "challenge_available": False
         }
 
@@ -154,17 +160,25 @@ def semantic_search(
         try:
             db.add(challenge)
             db.commit()
+            db.refresh(challenge)
+
         except IntegrityError:
             db.rollback()
 
-            # Another request created it
             challenge = db.query(Challenge).filter(
                 Challenge.topic_key == topic_key
             ).first()
 
+    # Generate AI fallback note
+    try:
+        ai_note = generate_ai_notes(query)
+    except Exception:
+        ai_note = None
+
     return {
         "query": query,
         "results": [],
+        "ai_generated_note": ai_note,
         "challenge_available": True,
         "challenge": {
             "challenge_id": str(challenge.id),
